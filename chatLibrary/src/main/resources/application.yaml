@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: chatLibrary
+  ai:
+    ollama:
+      init:
+        pull-model-strategy: always
+        timeout: 60s
+        max-retries: 3
+        embedding:
+          additional-models: bge-base-zh-v1.5
+      base-url: http://localhost:11434
+      chat:
+        model: deepseek-r1:14b
+    vectorstore:
+      qdrant:
+        initialize-schema: true
+  datasource:
+    url: jdbc:mysql://localhost:3306/chat_ai_db?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: always
+  main:
+    allow-bean-definition-overriding: true
+
+logging:
+  level:
+    org.springframework.ai: debug
+    com.zg.ai: debug
+
