@@ -1,0 +1,55 @@
+// 参考: https://element-plus.org/en-US/guide/theming.html
+
+@forward 'element-plus/theme-chalk/src/common/var.scss' with (
+  $colors: (
+    'primary': (
+      'base': #475569, // Slate 600
+    ),
+    'success': (
+      'base': #10b981, // Emerald 500
+    ),
+    'warning': (
+      'base': #f59e0b, // Amber 500
+    ),
+    'danger': (
+      'base': #ef4444, // Red 500
+    ),
+    'info': (
+      'base': #94a3b8, // Slate 400
+    ),
+  ),
+  $text-color: (
+    'primary': #1e293b, // Slate 800
+    'regular': #334155, // Slate 700
+    'secondary': #64748b, // Slate 500
+    'placeholder': #94a3b8, // Slate 400
+  ),
+  $border-color: (
+    'base': #e2e8f0, // Slate 200
+    'light': #f1f5f9, // Slate 100
+  ),
+  $bg-color: (
+    'page': #f8fafc, // Slate 50
+    'overlay': #ffffff,
+  )
+);
+
+// 全局样式优化
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// 页面过渡动画
+.page-enter-active,
+.page-leave-active {
+  transition: all 0.3s ease-out;
+}
+
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
+}

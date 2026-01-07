@@ -1,43 +1,83 @@
 package com.zg.ai.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.zg.ai.entity.User;
-import com.zg.ai.mapper.UserMapper;
+import com.zg.ai.entity.dto.user.ChangePasswordDTO;
+import com.zg.ai.entity.dto.user.UserDTO;
+import com.zg.ai.entity.dto.user.UserLoginDTO;
+import com.zg.ai.entity.dto.user.UserRegisterDTO;
+import com.zg.ai.entity.dto.user.UserUpdateDTO;
+import com.zg.ai.entity.po.User;
+import com.zg.ai.repository.UserRepository;
 import com.zg.ai.service.UserService;
+import com.zg.ai.utils.PasswordUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
+import reactor.core.publisher.Mono;
 
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
-public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+public class UserServiceImpl implements UserService {
+
+    private final UserRepository userRepository;
 
     @Override
-    public User login(String username, String password) {
-        String passwordHash = DigestUtils.md5DigestAsHex(password.getBytes(StandardCharsets.UTF_8));
-        User user = this.getOne(new QueryWrapper<User>().eq("username", username).eq("password_hash", passwordHash));
-        if (user != null) {
-            user.setLastLoginAt(LocalDateTime.now());
-            this.updateById(user);
-            return user;
-        }
-        return null;
+    public Mono<UserDTO> login(UserLoginDTO loginDTO) {
+        return userRepository.findByUsername(loginDTO.getUsername())
+                .filter(user -> PasswordUtil.checkPassword(loginDTO.getPassword(), user.getPasswordHash()))
+                .flatMap(user -> {
+                    user.setLastLoginAt(LocalDateTime.now());
+                    return userRepository.save(user).map(this::convertToDTO);
+                });
     }
 
     @Override
-    public User register(String username, String password) {
-        if (this.count(new QueryWrapper<User>().eq("username", username)) > 0) {
-            throw new RuntimeException("Username already exists");
-        }
-        User user = new User();
-        user.setUsername(username);
-        user.setPasswordHash(DigestUtils.md5DigestAsHex(password.getBytes(StandardCharsets.UTF_8)));
-        user.setTotalDocuments(0);
-        this.save(user);
-        return user;
+    public Mono<UserDTO> register(UserRegisterDTO registerDTO) {
+        return userRepository.findByUsername(registerDTO.getUsername())
+                .flatMap(existing -> Mono.<UserDTO>error(new RuntimeException("用户名已存在")))
+                .switchIfEmpty(Mono.defer(() -> {
+                    User user = new User();
+                    user.setEmail(registerDTO.getEmail());
+                    user.setUsername(registerDTO.getUsername());
+                    user.setPasswordHash(PasswordUtil.hashPassword(registerDTO.getPassword()));
+                    user.setTotalDocuments(0);
+                    return userRepository.save(user).map(this::convertToDTO);
+                }));
+    }
+
+    @Override
+    public Mono<UserDTO> update(String userId, UserUpdateDTO updateDTO) {
+        return userRepository.findById(userId)
+                .flatMap(user -> {
+                    user.setUsername(updateDTO.getUsername());
+                    user.setEmail(updateDTO.getEmail());
+                    return userRepository.save(user).map(this::convertToDTO);
+                });
+    }
+
+    @Override
+    public Mono<UserDTO> changePassword(String userId, ChangePasswordDTO changePasswordDTO) {
+        return userRepository.findById(userId)
+                .filter(user -> PasswordUtil.checkPassword(changePasswordDTO.getOldPassword(), user.getPasswordHash()))
+                .flatMap(user -> {
+                    user.setPasswordHash(PasswordUtil.hashPassword(changePasswordDTO.getNewPassword()));
+                    return userRepository.save(user).map(this::convertToDTO);
+                });
+    }
+
+    @Override
+    public Mono<Void> delete(String userId) {
+        return userRepository.findById(userId)
+                .flatMap(user -> {
+                    user.setDeleted(true);
+                    return userRepository.save(user);
+                }).then();
+    }
+
+    public UserDTO convertToDTO(User user) {
+        UserDTO dto = new UserDTO();
+        BeanUtils.copyProperties(user, dto);
+        return dto;
     }
 }

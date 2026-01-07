@@ -1,17 +1,18 @@
 package com.zg.ai.service;
 
-import com.zg.ai.entity.ChatHistory;
-import com.zg.ai.entity.ChatMessage;
+import com.zg.ai.entity.dto.chat.ChatMessageDTO;
+import com.zg.ai.entity.dto.chat.ChatHistoryDTO;
 import reactor.core.publisher.Flux;
-
-import java.util.List;
+import reactor.core.publisher.Mono;
 
 public interface ChatService {
     Flux<String> chat(String prompt, String chatId, String userId);
 
-    List<ChatMessage> getHistory(String chatId);
+    Mono<String> createConversation(String userId, String title);
 
-    List<ChatHistory> getUserSessions(String userId);
+    Flux<ChatHistoryDTO> getConversations(String userId);
 
-    void deleteSession(String chatId);
+    Flux<ChatMessageDTO> getMessages(String historyId);
+
+    Mono<Void> deleteConversation(String historyId);
 }

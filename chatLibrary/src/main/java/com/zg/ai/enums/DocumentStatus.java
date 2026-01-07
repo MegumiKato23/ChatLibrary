@@ -1,6 +1,5 @@
 package com.zg.ai.enums;
 
-import com.baomidou.mybatisplus.annotation.EnumValue;
 import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -14,7 +13,6 @@ public enum DocumentStatus {
     FAILED(3, "处理失败"),
     DELETED(4, "已删除");
 
-    @EnumValue
     private final Integer code;
 
     @JsonValue

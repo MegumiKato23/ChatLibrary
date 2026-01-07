@@ -1,23 +1,22 @@
 package com.zg.ai.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
-import com.zg.ai.entity.Document;
-import org.springframework.web.multipart.MultipartFile;
-
+import com.zg.ai.entity.po.Document;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.multipart.FilePart;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-import java.io.IOException;
-import java.util.List;
+public interface DocumentService {
+    Mono<Document> upload(FilePart filePart, String userId);
 
-public interface DocumentService extends IService<Document> {
-    void upload(MultipartFile file);
+    Mono<Void> deleteDocument(String id);
 
-    void upload(MultipartFile file, String userId);
-    
-    void deleteDocument(String id);
+    Flux<Document> listDocuments(String userId);
 
-    List<Document> listDocuments(String userId);
+    Flux<Document> listAllDocuments();
 
-    ResponseEntity<Resource> getPreviewResource(String id) throws IOException;
+     Mono<ResponseEntity<Resource>> getPreviewResource(String id);
+
+    Mono<String> getPreviewContent(String id);
 }

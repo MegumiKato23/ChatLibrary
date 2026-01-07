@@ -3,11 +3,13 @@
 
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
+    role ENUM('USER', 'ADMIN') DEFAULT 'USER',
     username VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     password_hash VARCHAR(255),
     total_documents INT DEFAULT 0,
     last_login_at DATETIME,
+    upload_permission BOOLEAN DEFAULT TRUE,
     create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted TINYINT(1) DEFAULT 0,
@@ -17,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS document (
     id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36),
     document_name VARCHAR(255),
     original_filename VARCHAR(255),
     file_path VARCHAR(512),
@@ -24,13 +27,9 @@ CREATE TABLE IF NOT EXISTS document (
     file_size BIGINT,
     content_type VARCHAR(100),
     status TINYINT,
-    error_message TEXT,
     total_chunks INT,
     total_pages INT,
     embedding_model VARCHAR(100),
-    uploaded_at DATETIME,
-    processed_at DATETIME,
-    user_id VARCHAR(36),
     create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted TINYINT(1) DEFAULT 0,
@@ -52,23 +51,21 @@ CREATE TABLE IF NOT EXISTS document_chunk (
 
 CREATE TABLE IF NOT EXISTS chat_history (
     id VARCHAR(36) PRIMARY KEY,
-    session_id VARCHAR(255) NOT NULL,
     user_id VARCHAR(36),
     title VARCHAR(255),
     create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted TINYINT(1) DEFAULT 0,
-    UNIQUE KEY uk_session_id (session_id),
     INDEX idx_user_id (user_id)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS chat_message (
     id VARCHAR(36) PRIMARY KEY,
-    session_id VARCHAR(255) NOT NULL,
+    history_id VARCHAR(36) NOT NULL,
     message_type VARCHAR(50),
     content TEXT,
     create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted TINYINT(1) DEFAULT 0,
-    INDEX idx_session_id (session_id)
+    INDEX idx_history_id (history_id)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
