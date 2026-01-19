@@ -20,13 +20,11 @@ public class AuthenticationWebFilter implements WebFilter {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getPath().value();
 
-        // Allow OPTIONS
         if (request.getMethod().name().equals("OPTIONS")) {
             return chain.filter(exchange);
         }
 
-        // Allow public endpoints
-        if (path.startsWith("/user/login") || 
+        if (path.startsWith("/user/login") ||
             path.startsWith("/user/register") || 
             path.startsWith("/v3/api-docs") || 
             path.startsWith("/webjars") ||

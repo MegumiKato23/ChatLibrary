@@ -90,19 +90,19 @@ const form = reactive({
   confirmPassword: "",
 });
 
-// Tips
+// 密码验证提示
 const oldPasswordTip = ref("");
 const newPasswordTip = ref("");
 const confirmPasswordTip = ref("");
 
-// Validation state
+// 验证状态
 const newPasswordValid = ref(false);
 const confirmPasswordValid = ref(false);
 
 const loading = ref(false);
 const errorMessage = ref("");
 
-// Debounce
+// 防抖
 const debounce = (func: Function, wait: number) => {
   let timeout: ReturnType<typeof setTimeout>;
   return function executedFunction(...args: any[]) {
@@ -115,7 +115,7 @@ const debounce = (func: Function, wait: number) => {
   };
 };
 
-// Password Strength
+// 密码强度
 const passwordStrength = computed(() => {
   const password = form.newPassword;
   if (password.length === 0) return "";
@@ -148,7 +148,7 @@ const passwordStrengthText = computed(() => {
 
 const getTipClass = (tipValue: string) => {
   if (!tipValue) return "";
-  return "error"; // Always error style for tips in this context if they have content
+  return "error"; 
 };
 
 const handleOldPasswordInput = () => {
@@ -162,7 +162,6 @@ const validateNewPassword = (password: string) => {
     return "";
   }
   if (password.length < 8) {
-    // Requirement: min 8
     newPasswordValid.value = false;
     return "密码长度至少需要8个字符";
   }

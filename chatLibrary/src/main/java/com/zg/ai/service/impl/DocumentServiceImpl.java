@@ -51,6 +51,9 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 
+/**
+ * 文档服务实现类：处理文件上传、解析、分块及向量化存储
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -62,36 +65,41 @@ public class DocumentServiceImpl implements DocumentService {
     private final ObjectMapper objectMapper;
     private final String STORAGE_DIR = "data/uploads";
     private final Set<String> SUPPORTED_FILE_TYPES = Set.of(
-            "pdf", "docx", "doc", "txt", "xlsx", "xls", "pptx", "ppt", "md");
+            "pdf", "docx", "doc", "txt", "pptx", "ppt", "md");
 
     @Override
     @Transactional
     public Mono<Document> upload(FilePart filePart, String userId) {
+        // 获取文件名和类型
         String fileName = filePart.filename();
         String fileType = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".") + 1) : "";
 
+        // 校验文件类型
         if (!SUPPORTED_FILE_TYPES.contains(fileType.toLowerCase())) {
             return Mono.error(new IllegalArgumentException("不支持该文件类型:" + fileType));
         }
 
+        // 生成存储路径
         String newFilename = UUID.randomUUID().toString() + (fileType.isEmpty() ? "" : "." + fileType);
         Path storagePath = Paths.get(STORAGE_DIR);
         Path filePath = storagePath.resolve(newFilename);
 
+        // 保存文件到指定路径
         return Mono.fromCallable(() -> {
             Files.createDirectories(storagePath);
             return filePath;
         }).subscribeOn(Schedulers.boundedElastic())
                 .flatMap(path -> {
+                    // 初始化文档记录
                     Document document = new Document();
-                    document.setDocumentName(newFilename); // Use generated name for storage reference if needed, or
-                                                           // original
-                    document.setOriginalFilename(fileName); // Set original filename
+                    document.setDocumentName(newFilename); 
+                    document.setOriginalFilename(fileName); 
                     document.setUserId(userId);
                     document.setStatus(DocumentStatus.PROCESSING.getCode());
                     document.setFileType(fileType);
                     document.setFilePath(filePath.toString());
 
+                    // 流式写入文件并保存记录
                     return DataBufferUtils.write(filePart.content(), filePath,
                             StandardOpenOption.CREATE,
                             StandardOpenOption.WRITE,
@@ -102,12 +110,12 @@ public class DocumentServiceImpl implements DocumentService {
                                     String contentType = Files.probeContentType(filePath);
                                     document.setContentType(contentType);
                                 } catch (IOException e) {
-                                    log.error("Failed to get file info", e);
+                                    log.error("获取文件信息失败", e);
                                 }
                                 return documentRepository.save(document);
                             }))
                             .doOnSuccess(doc -> {
-                                // Async processing
+                                // 异步处理文档
                                 Mono.fromRunnable(() -> processDocument(doc))
                                         .subscribeOn(Schedulers.boundedElastic())
                                         .subscribe();
@@ -115,26 +123,24 @@ public class DocumentServiceImpl implements DocumentService {
                 });
     }
 
+    // 异步解析文档：提取文本、分块、存储到数据库和向量库
     private void processDocument(Document document) {
         try {
-            log.info("Starting to process document: {}", document.getId());
-
-            // 1. Tika Parse
+            // 1.使用 Tika 提取文本内容
             Resource resource = new FileSystemResource(document.getFilePath());
             TikaDocumentReader reader = new TikaDocumentReader(resource);
             List<org.springframework.ai.document.Document> aiDocuments = reader.get();
 
             if (aiDocuments.isEmpty()) {
-                log.warn("No content extracted from document: {}", document.getId());
                 updateStatus(document, DocumentStatus.FAILED).subscribe();
                 return;
             }
 
-            // 2. Split
+            // 2. 文本分块处理
             TokenTextSplitter splitter = new TokenTextSplitter();
             List<org.springframework.ai.document.Document> chunks = splitter.apply(aiDocuments);
 
-            // 3. Save to DB and Vector Store
+            // 3. 保存分块到数据库和向量库
             List<DocumentChunk> dbChunks = new ArrayList<>();
             List<org.springframework.ai.document.Document> docsToStore = new ArrayList<>();
 
@@ -149,7 +155,6 @@ public class DocumentServiceImpl implements DocumentService {
                 dbChunk.setContent(chunk.getText());
                 dbChunk.setTokenCount(chunk.getText().length());
 
-                // Enhance metadata
                 Map<String, Object> metadata = chunk.getMetadata();
                 metadata.put("originalFilename", document.getDocumentName());
                 metadata.put("userId", document.getUserId());
@@ -159,57 +164,53 @@ public class DocumentServiceImpl implements DocumentService {
                 try {
                     dbChunk.setMetadata(objectMapper.writeValueAsString(metadata));
                 } catch (JsonProcessingException e) {
-                    log.error("Metadata serialization failed", e);
+                    log.error("文档分块元数据序列化失败", e);
                     dbChunk.setMetadata("{}");
                 }
 
                 dbChunks.add(dbChunk);
 
-                // Create AI Doc with specific ID
+                // 构建 Spring AI 向量库文档对象
                 org.springframework.ai.document.Document docToStore = new org.springframework.ai.document.Document(
                         vectorId, chunk.getText(), metadata);
                 docsToStore.add(docToStore);
             }
 
-            // Batch insert to DB
-            documentChunkRepository.saveAll(dbChunks).collectList().block(); // Block inside boundedElastic is
-                                                                             // acceptable
+            // 批量保存到数据库
+            documentChunkRepository.saveAll(dbChunks).collectList().block();
 
-            // 4. Save to Vector Store
+            // 4. 保存到向量库
             vectorStore.add(docsToStore);
 
-            // 5. Update Status
+            // 5. 更新文档状态
             document.setTotalChunks(chunks.size());
             updateStatus(document, DocumentStatus.PROCESSED).subscribe();
-            log.info("Document processed successfully: {}", document.getId());
 
         } catch (Exception e) {
-            log.error("Error processing document: " + document.getId(), e);
+            log.error("文档处理失败: " + document.getId(), e);
             updateStatus(document, DocumentStatus.FAILED).subscribe();
         }
     }
 
+    // 更新文档状态
     private Mono<Document> updateStatus(Document document, DocumentStatus status) {
         document.setStatus(status.getCode());
         return documentRepository.save(document);
     }
 
+    // 获取用户文档列表
     @Override
     public Flux<Document> listDocuments(String userId) {
-        // R2DBC repository methods return Flux directly
-        // We need to implement custom query or use method name convention if supported
-        // findByUserId is defined in repository
         return documentRepository.findByUserId(userId);
-        // Note: Sort by createAt desc needs to be in repository method name or Query
-        // Let's assume the repository returns as is, or we define
-        // findAllByUserIdOrderByCreateAtDesc
     }
 
+    // 获取所有文档列表
     @Override
     public Flux<Document> listAllDocuments() {
         return documentRepository.findAll();
     }
 
+    // 获取文档预览（针对PDF）
     @Override
     public Mono<ResponseEntity<Resource>> getPreviewResource(String id) {
         return documentRepository.findById(id)
@@ -233,18 +234,19 @@ public class DocumentServiceImpl implements DocumentService {
                             .body(resource);
                 }).subscribeOn(Schedulers.boundedElastic()))
                 .onErrorResume(e -> {
-                    log.error("Error previewing document: " + id, e);
+                    log.error("获取文档预览失败: " + id, e);
                     return Mono.just(ResponseEntity.internalServerError().<Resource>build());
                 })
                 .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()));
     }
 
+    // 删除文档
     @Override
     @Transactional
     public Mono<Void> deleteDocument(String id) {
         return documentRepository.findById(id)
                 .flatMap(document -> {
-                    // 1. Get chunks to find vector IDs
+                    // 1. 获取文档所有分块
                     return documentChunkRepository.findByDocumentId(id)
                             .collectList()
                             .flatMap(chunks -> {
@@ -257,10 +259,10 @@ public class DocumentServiceImpl implements DocumentService {
                                             vectorIds.add((String) meta.get("vectorId"));
                                         }
                                     } catch (Exception e) {
-                                        // ignore
+                                        log.warn("解析文档分块元数据失败: " + chunk.getId(), e);
                                     }
                                 }
-                                // 2. Delete from Vector Store (blocking)
+                                // 2. 删除向量库中的分块
                                 if (!vectorIds.isEmpty()) {
                                     Mono.fromRunnable(() -> vectorStore.delete(vectorIds))
                                             .subscribeOn(Schedulers.boundedElastic())
@@ -268,9 +270,9 @@ public class DocumentServiceImpl implements DocumentService {
                                 }
                                 return Mono.empty();
                             })
-                            // 3. Delete chunks
+                            // 3. 删除数据库中的分块
                             .then(documentChunkRepository.deleteAll(documentChunkRepository.findByDocumentId(id)))
-                            // 4. Delete file
+                            // 4. 删除文件系统中的文件
                             .then(Mono.fromRunnable(() -> {
                                 try {
                                     Files.deleteIfExists(Paths.get(document.getFilePath()));
@@ -278,18 +280,19 @@ public class DocumentServiceImpl implements DocumentService {
                                     log.warn("Failed to delete file: " + document.getFilePath(), e);
                                 }
                             }).subscribeOn(Schedulers.boundedElastic()))
-                            // 5. Delete document record
+                            // 5. 删除数据库中的文档记录
                             .then(documentRepository.deleteById(id));
                 });
     }
 
+    // 获取文档预览（针对txt、doc类型）
     @Override
     public Mono<String> getPreviewContent(String id) {
         return documentRepository.findById(id)
                 .flatMap(document -> Mono.fromCallable(() -> {
                     Path filePath = Paths.get(document.getFilePath());
                     if (!Files.exists(filePath)) {
-                        throw new IOException("File not found");
+                        throw new IOException("文件不存在: " + document.getFilePath());
                     }
 
                     String fileType = document.getFileType().toLowerCase();
@@ -301,13 +304,13 @@ public class DocumentServiceImpl implements DocumentService {
                         try {
                             return convertDocToHtml(filePath);
                         } catch (Exception e) {
-                            log.error("POI conversion failed, falling back to Tika", e);
+                            log.error("文件转换为HTML失败: " + document.getFilePath(), e);
                         }
                     }
 
                     try (InputStream stream = Files.newInputStream(filePath)) {
                         AutoDetectParser parser = new AutoDetectParser();
-                        BodyContentHandler handler = new BodyContentHandler(-1); // -1 for unlimited
+                        BodyContentHandler handler = new BodyContentHandler(-1); 
                         Metadata metadata = new Metadata();
                         parser.parse(stream, handler, metadata, new ParseContext());
                         return handler.toString();
@@ -315,6 +318,7 @@ public class DocumentServiceImpl implements DocumentService {
                 }).subscribeOn(Schedulers.boundedElastic()));
     }
 
+    // 辅助方法：将DOC文件转换为HTML格式
     private String convertDocToHtml(Path filePath) throws Exception {
         try (InputStream inputStream = Files.newInputStream(filePath)) {
             HWPFDocument wordDocument = new HWPFDocument(inputStream);

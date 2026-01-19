@@ -3,25 +3,38 @@ import { useStorage } from "@vueuse/core";
 import { type ChatHistoryDTO, type ChatMessage } from "~/types";
 
 export const useChatStore = defineStore("chat", () => {
-  const conversations = ref<ChatHistoryDTO[]>([]);
-  const currentConversationId = ref<string | null>(null);
-  const messages = ref<ChatMessage[]>([]);
-  const isTyping = ref(false);
-  const isThinking = ref(false);
-  const messageQueue = ref<string[]>([]);
-  const isProcessingQueue = ref(false);
-  
+  // --- 状态定义 ---
+  const conversations = ref<ChatHistoryDTO[]>([]); // 会话列表
+  const currentConversationId = ref<string | null>(null); // 当前选中会话ID
+  const messages = ref<ChatMessage[]>([]); // 当前会话消息记录
+  const isTyping = ref(false); // 是否正在输入/生成中
+  const isThinking = ref(false); // AI 是否正在思考（等待首字）
+  const messageQueue = ref<string[]>([]); // 消息队列（防止并发发送）
+  const isProcessingQueue = ref(false); // 队列处理状态
+  const pendingMessage = ref<string>(""); // 待发送消息（用于登录后恢复）
+
   const chatApi = useChatApi();
   const userStore = useUserStore();
-  
+
   const guestConversations = useStorage<any[]>("guest-conversations", []);
 
   // 敏感词设置
-  const sensitiveWords = ["", ""]; 
+  const sensitiveWords = [
+    "暴力",
+    "色情",
+    "赌博",
+    "毒品",
+    "反动",
+    "恐怖主义",
+    "邪教",
+    "诈骗",
+  ];
 
+  // 验证输入内容（敏感词过滤）
   const validateInput = (content: string): boolean => {
     if (!content.trim()) return false;
     if (sensitiveWords.some((word) => content.includes(word))) {
+      // 本地模拟用户消息
       const userMsg: ChatMessage = {
         id: Date.now().toString(),
         conversationId: currentConversationId.value || "temp",
@@ -31,6 +44,7 @@ export const useChatStore = defineStore("chat", () => {
         createTime: new Date().toISOString(),
       };
       messages.value.push(userMsg);
+      // 本地模拟系统回复
       messages.value.push({
         id: (Date.now() + 1).toString(),
         conversationId: currentConversationId.value || "temp",
@@ -44,6 +58,9 @@ export const useChatStore = defineStore("chat", () => {
     return true;
   };
 
+  // --- Actions ---
+
+  // 获取会话列表
   const fetchConversations = async () => {
     if (userStore.isAuthenticated && userStore.user?.id) {
       try {
@@ -53,7 +70,7 @@ export const useChatStore = defineStore("chat", () => {
           if (!Array.isArray(list)) {
             list = [];
           }
-
+          // 按更新时间倒序排序
           conversations.value = list.sort((a, b) => {
             const timeA = a.updateTime ? new Date(a.updateTime).getTime() : 0;
             const timeB = b.updateTime ? new Date(b.updateTime).getTime() : 0;
@@ -65,6 +82,7 @@ export const useChatStore = defineStore("chat", () => {
       }
     } else {
       console.log("[ChatStore] Guest mode or not authenticated");
+      // 访客模式使用本地存储
       conversations.value = guestConversations.value.sort((a, b) => {
         const timeA = a.updateTime ? new Date(a.updateTime).getTime() : 0;
         const timeB = b.updateTime ? new Date(b.updateTime).getTime() : 0;
@@ -73,6 +91,7 @@ export const useChatStore = defineStore("chat", () => {
     }
   };
 
+  // 创建新会话
   const createConversation = async (title: string = "New Chat") => {
     if (userStore.isAuthenticated && userStore.user?.id) {
       try {
@@ -91,12 +110,14 @@ export const useChatStore = defineStore("chat", () => {
     }
   };
 
+  // 删除会话
   const deleteConversation = async (conversationId: string) => {
     if (userStore.isAuthenticated) {
       try {
         const res = await chatApi.deleteConversation(conversationId);
         if (res.code === 200) {
           await fetchConversations();
+          // 如果删除的是当前选中会话，清空当前状态
           if (currentConversationId.value === conversationId) {
             currentConversationId.value = null;
             messages.value = [];
@@ -108,6 +129,7 @@ export const useChatStore = defineStore("chat", () => {
     }
   };
 
+  // 选中会话并加载历史记录
   const selectConversation = async (conversationId: string) => {
     currentConversationId.value = conversationId;
     if (userStore.isAuthenticated) {
@@ -124,11 +146,14 @@ export const useChatStore = defineStore("chat", () => {
     }
   };
 
+  // 内部：处理单条消息发送逻辑
   const processMessage = async (content: string) => {
+    // 如果没有选中会话，自动创建
     if (!currentConversationId.value) {
       await createConversation(content.substring(0, 20));
     }
 
+    // 添加用户消息到界面
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       conversationId: currentConversationId.value!,
@@ -143,6 +168,7 @@ export const useChatStore = defineStore("chat", () => {
     isThinking.value = true;
 
     if (userStore.isAuthenticated && userStore.user?.id) {
+      // 预先添加 AI 消息占位
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         conversationId: currentConversationId.value!,
@@ -154,6 +180,7 @@ export const useChatStore = defineStore("chat", () => {
       messages.value.push(aiMsg);
       const aiMessageIndex = messages.value.length - 1;
 
+      // 调用流式接口
       await chatApi.sendMessage(
         currentConversationId.value!,
         content,
@@ -161,6 +188,7 @@ export const useChatStore = defineStore("chat", () => {
         {
           onMessage: (text) => {
             if (isThinking.value) isThinking.value = false;
+            // 实时追加回复内容
             if (messages.value[aiMessageIndex]) {
               messages.value[aiMessageIndex].content += text;
             }
@@ -187,6 +215,7 @@ export const useChatStore = defineStore("chat", () => {
     }
   };
 
+  // 发送消息入口（加入队列）
   const sendMessage = async (content: string) => {
     if (!validateInput(content)) return;
 
@@ -196,6 +225,7 @@ export const useChatStore = defineStore("chat", () => {
     }
   };
 
+  // 队列处理器
   const processQueue = async () => {
     isProcessingQueue.value = true;
     while (messageQueue.value.length > 0) {
@@ -207,6 +237,7 @@ export const useChatStore = defineStore("chat", () => {
     isProcessingQueue.value = false;
   };
 
+  // 清空所有状态（登出时调用）
   const clearState = () => {
     conversations.value = [];
     currentConversationId.value = null;
@@ -223,6 +254,7 @@ export const useChatStore = defineStore("chat", () => {
     messages,
     isTyping,
     isThinking,
+    pendingMessage,
     fetchConversations,
     createConversation,
     deleteConversation,

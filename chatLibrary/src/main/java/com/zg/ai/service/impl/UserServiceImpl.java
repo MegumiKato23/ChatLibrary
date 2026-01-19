@@ -16,12 +16,16 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 
+/*
+ * 用户服务实现类
+ */
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
 
+    // 用户登录
     @Override
     public Mono<UserDTO> login(UserLoginDTO loginDTO) {
         return userRepository.findByUsername(loginDTO.getUsername())
@@ -32,6 +36,7 @@ public class UserServiceImpl implements UserService {
                 });
     }
 
+    // 用户注册
     @Override
     public Mono<UserDTO> register(UserRegisterDTO registerDTO) {
         return userRepository.findByUsername(registerDTO.getUsername())
@@ -46,6 +51,7 @@ public class UserServiceImpl implements UserService {
                 }));
     }
 
+    // 更新用户信息
     @Override
     public Mono<UserDTO> update(String userId, UserUpdateDTO updateDTO) {
         return userRepository.findById(userId)
@@ -56,6 +62,7 @@ public class UserServiceImpl implements UserService {
                 });
     }
 
+    // 更改密码
     @Override
     public Mono<UserDTO> changePassword(String userId, ChangePasswordDTO changePasswordDTO) {
         return userRepository.findById(userId)
@@ -66,6 +73,7 @@ public class UserServiceImpl implements UserService {
                 });
     }
 
+    // 删除用户
     @Override
     public Mono<Void> delete(String userId) {
         return userRepository.findById(userId)

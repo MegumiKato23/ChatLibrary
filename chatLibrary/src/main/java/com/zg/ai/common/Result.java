@@ -50,11 +50,4 @@ public class Result<T> implements Serializable {
         result.setMessage(resultCode.getMessage());
         return result;
     }
-
-    public static <T> Result<T> failure(int code, String message) {
-        Result<T> result = new Result<>();
-        result.setCode(code);
-        result.setMessage(message);
-        return result;
-    }
 }

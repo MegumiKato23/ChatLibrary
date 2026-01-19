@@ -26,6 +26,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+/**
+ * 聊天服务实现类：处理 RAG 检索、对话历史管理及 AI 流式响应
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -36,23 +39,23 @@ public class ChatServiceImpl implements ChatService {
     private final ChatHistoryRepository chatHistoryRepository;
     private final ChatMessageRepository chatMessageRepository;
     
-    // Simple in-memory cache for retrieval results (key: prompt, value: documents)
+    // 缓存 RAG 检索结果，键为用户输入，值为文档列表
     private final Map<String, List<Document>> retrievalCache = new ConcurrentHashMap<>();
 
     @Override
     public Flux<String> chat(String prompt, String chatId, String userId) {
-        // 1. Ensure Chat History exists
+        // 1. 确保对话历史存在，若不存在则创建新历史记录
         return chatHistoryRepository.findById(chatId)
                 .switchIfEmpty(Mono.defer(() -> {
                     ChatHistory newHistory = new ChatHistory();
-                    newHistory.setId(chatId); // Use provided ID or generate? Client usually sends ID.
+                    newHistory.setId(chatId); 
                     newHistory.setUserId(userId);
                     newHistory.setTitle(prompt.length() > 20 ? prompt.substring(0, 20) + "..." : prompt);
                     newHistory.setUpdateAt(LocalDateTime.now());
                     return chatHistoryRepository.save(newHistory);
                 }))
                 .flatMap(history -> {
-                    // 2. Save User Message
+                    // 2. 保存用户消息
                     ChatMessage userMessage = new ChatMessage();
                     userMessage.setHistoryId(chatId);
                     userMessage.setMessageType("USER");
@@ -61,7 +64,7 @@ public class ChatServiceImpl implements ChatService {
                     return chatMessageRepository.save(userMessage).thenReturn(history);
                 })
                 .flatMapMany(history -> {
-                    // 3. RAG Retrieval (Blocking call to VectorStore, wrap in boundedElastic)
+                    // 3. RAG 检索（阻塞式调用 VectorStore，在 boundedElastic 线程池执行）
                     return Mono.fromCallable(() -> {
                         return retrievalCache.computeIfAbsent(prompt, k -> {
                             SearchRequest searchRequest = SearchRequest.builder()
@@ -77,7 +80,7 @@ public class ChatServiceImpl implements ChatService {
                                 .map(Document::getText)
                                 .collect(Collectors.joining("\n\n"));
 
-                        // 4. Construct Prompt
+                        // 4. 构造系统提示词
                         String systemPrompt = String.format("""
                                 你是本地知识库问答机器人，你的名字叫加藤惠。
                                 请根据以下参考文档回答用户的问题。
@@ -87,7 +90,7 @@ public class ChatServiceImpl implements ChatService {
                                 %s
                                 """, context);
 
-                        // 5. Call ChatClient
+                        // 5. 调用 ChatClient 生成流式响应
                         StringBuilder fullResponse = new StringBuilder();
                         return chatClient.prompt()
                                 .system(systemPrompt)
@@ -97,64 +100,61 @@ public class ChatServiceImpl implements ChatService {
                                 .content()
                                 .doOnNext(fullResponse::append)
                                 .doOnComplete(() -> {
-                                    // 6. Save Assistant Message
+                                    // 6. 保存助手消息
                                     ChatMessage aiMessage = new ChatMessage();
                                     aiMessage.setHistoryId(chatId);
                                     aiMessage.setMessageType("ASSISTANT");
                                     aiMessage.setContent(fullResponse.toString());
-                                    // Async save
+
                                     chatMessageRepository.save(aiMessage)
                                             .subscribe(
-                                                    saved -> log.debug("Saved AI message"),
-                                                    err -> log.error("Failed to save AI message", err)
+                                                    saved -> log.debug("成功保存 AI 消息: {}", saved),
+                                                    err -> log.error("保存 AI 消息失败: {}", err.getMessage(), err)
                                             );
                                     
                                     if (retrievalCache.size() > 1000) {
                                         retrievalCache.clear();
                                     }
                                 })
-                                .doOnError(e -> log.error("Error in chat stream", e));
+                                .doOnError(e -> log.error("聊天流处理出错: {}", e.getMessage(), e));
                     });
                 });
     }
 
+    // 创建新对话
     @Override
     public Mono<String> createConversation(String userId, String title) {
         ChatHistory chatHistory = new ChatHistory();
         chatHistory.setUserId(userId);
-        chatHistory.setTitle(title != null && !title.isEmpty() ? title : "New Chat");
+        chatHistory.setTitle(title != null && !title.isEmpty() ? title : "新对话");
         return chatHistoryRepository.save(chatHistory).map(ChatHistory::getId);
     }
 
+    // 获取用户对话列表
     @Override
     public Flux<ChatHistoryDTO> getConversations(String userId) {
         return chatHistoryRepository.findByUserIdOrderByUpdateAtDesc(userId)
                 .map(this::convertToDTO);
     }
 
+    // 获取对话消息列表
     @Override
     public Flux<ChatMessageDTO> getMessages(String historyId) {
         return chatMessageRepository.findByHistoryIdOrderByCreateAtAsc(historyId)
                 .map(this::convertToDTO);
     }
 
+    // 删除对话
     @Override
     public Mono<Void> deleteConversation(String historyId) {
-        return chatMessageRepository.findByHistoryId(historyId) // Find messages to delete? Or deleteAll by criteria?
-                // R2DBC repository doesn't support delete by criteria directly without custom query.
-                // But we can delete by ID or find and delete.
-                // Let's iterate and delete or use custom query if available.
-                // For simplicity:
+        return chatMessageRepository.findByHistoryId(historyId) 
                 .flatMap(msg -> chatMessageRepository.delete(msg))
                 .then(chatHistoryRepository.deleteById(historyId));
     }
 
     private ChatHistoryDTO convertToDTO(ChatHistory history) {
         ChatHistoryDTO dto = new ChatHistoryDTO();
-        dto.setId(history.getId());
-        dto.setTitle(history.getTitle());
-        dto.setCreateTime(history.getCreateAt());
-        dto.setUpdateTime(history.getUpdateAt());
+        BeanUtils.copyProperties(history, dto);
         return dto;
     }
 

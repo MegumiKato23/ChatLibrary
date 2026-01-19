@@ -219,7 +219,7 @@
             <div class="delete-footer">
               <button class="btn cancel-btn" @click="cancelDelete">取消</button>
               <button class="btn confirm-btn" @click="confirmDelete">
-                {{ deleteType === "logout" ? "确认" : "确定退出" }}
+                {{ deleteType === "logout" ? "确认" : "确定" }}
               </button>
             </div>
           </div>
@@ -284,7 +284,7 @@ const deleteMessage = computed(() => {
 
 const openDeleteModal = (
   id: string,
-  type: "conversation" | "document" | "logout" = "conversation"
+  type: "conversation" | "document" | "logout" = "conversation",
 ) => {
   itemToDeleteId.value = id;
   deleteType.value = type;
@@ -438,7 +438,8 @@ onMounted(async () => {
   width: 480px; /* 20% larger than typical 400px */
   max-width: 90%;
   color: #1e293b;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1),
+  box-shadow:
+    0 10px 25px -5px rgba(0, 0, 0, 0.1),
     0 8px 10px -6px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   transform: scale(1);
